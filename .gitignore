@@ -1,0 +1,12 @@
+settings.*
+*.sqlite3*
+app.lock
+__pycache__/
+.env
+.env.*
+!.env.example
+data/
+sample-*.json
+*.log
+*.zip
+.venv/
