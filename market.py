@@ -203,7 +203,7 @@ class MarketStore:
                 superseded INTEGER DEFAULT 0);
         """)
 
-    def observe(self, snapshot, now=None):
+    def observe(self, snapshot, now=None, notify=False):
         now = int(time.time() * 1000) if now is None else now
         ranked = {}
         with self.db:
@@ -227,7 +227,7 @@ class MarketStore:
                 best = rank(snapshot[side], self.rules, previous_ids)
                 ranked[side] = best
                 current = [{"id": offer.id, "price": str(offer.price)} for offer in best]
-                if current != previous:
+                if notify and current != previous:
                     # An old unsent ranking alert must not arrive after its offer is obsolete.
                     self.db.execute("UPDATE alerts SET superseded=1 WHERE profile=? AND side=? AND sent=0",
                                     (self.profile, side))
@@ -243,12 +243,14 @@ class MarketStore:
                         improved = offer.price < previous_prices[offer.id] if side == "BUY" else offer.price > previous_prices[offer.id]
                         if improved:
                             reason = "BETTER PRICE - BEST NOW" if position == 1 else "BETTER PRICE IN TOP 5"
-                    if reason:
+                    if notify and reason:
                         self.db.execute("INSERT INTO alerts(profile,side,id,created_at,reason,message) VALUES (?,?,?,?,?,?)",
                                         (self.profile, side, offer.id, now, reason,
                                          alert_text(offer, self.rules, position, reason)))
                 # Carry forward still-relevant notifications superseded by an unrelated rank change.
                 for position, offer in enumerate(best, 1):
+                    if not notify:
+                        break
                     pending = self.db.execute("SELECT number,created_at,sent FROM alerts WHERE profile=? AND side=? AND id=? ORDER BY number DESC LIMIT 1",
                                               (self.profile, side, offer.id)).fetchone()
                     if pending and not pending[2]:
@@ -287,6 +289,8 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
     market = PublicMarket()
     telegram = Telegram(config["bot_token"], config["chat_id"])
     store = MarketStore(folder / "market.sqlite3", rules)
+    from telegram_commands import Commands
+    commands = Commands(telegram, config['chat_id'])
     errors = 0
     last_method_sync = 0
     try:
@@ -303,20 +307,11 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
                 report(f"Checked BUY and SELL. Best five: {len(ranked['BUY'])} BUY, {len(ranked['SELL'])} SELL. "
                        f"Saved offers: {store.history_count()}. " + time.strftime("%H:%M:%S"))
 
-                def send(message):
-                    telegram.send(message)
-                    stop.wait(1.1)
-
+                # No automatic market alerts or daily summaries: respond only to commands.
                 try:
-                    sent = store.deliver(send, stop.is_set)
-                    if sent:
-                        report(f"Sent {sent} market alert(s).")
+                    commands.poll(store, snapshot, rules, report)
                 except ServiceError as error:
-                    # Continue observing markets while Telegram is unavailable.
-                    report(f"Telegram delivery failed: {error} Relevant alerts will retry after the next scan.")
-                    stop.wait(error.retry_after)
-                # A durable once-per-Berlin-day summary of the last 24h.
-                send_daily_if_due(store, int(time.time() * 1000), send, report)
+                    report(f"Telegram command polling failed: {error}")
                 errors = 0
                 stop.wait(config["poll_seconds"])
             except ServiceError as error:
