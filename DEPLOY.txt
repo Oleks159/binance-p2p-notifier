@@ -1,0 +1,65 @@
+GITHUB AND SERVER DEPLOYMENT
+
+Use a new private GitHub repository, suggested name binance-p2p-notifier.
+Upload the files from the prepared GitHub-Upload folder. Do not upload the
+entire live desktop app folder: it contains your encrypted settings and history.
+Git ignores settings, SQLite databases, .env, logs and sample market captures.
+No Binance API key is used by market mode.
+
+The desktop launcher starts app.py. Cloud hosting must start server.py instead.
+The latter has no desktop or Windows dependencies and exposes a small health
+endpoint. It reads Telegram credentials only from environment variables.
+
+RENDER CONFIGURATION
+Source: new private GitHub repository, main branch.
+Language: Python 3.
+Build command: pip install -r requirements.txt
+Start command: python -u server.py
+Health check path: /healthz
+Run a single instance so notification delivery is not duplicated.
+
+Environment variables to enter privately in Render:
+TELEGRAM_BOT_TOKEN = your bot token (secret)
+TELEGRAM_CHAT_ID = your numeric chat ID (secret)
+MIN_EUR = 500
+MAX_EUR = 10000
+POLL_SECONDS = 15
+DATA_DIR = data (temporary storage unless a persistent directory is configured)
+Render supplies PORT automatically; the default is 10000.
+
+Stop the Windows watcher before starting the server, otherwise both may notify.
+The server starts a new ranking history unless an existing market.sqlite3 is
+migrated separately to its persistent data directory. Never commit that database.
+
+RENDER FREE LIMITATIONS
+Free web services sleep after 15 minutes without incoming requests. Their
+outbound Binance polling does not prevent this. Background polling stops while
+the service sleeps. No keepalive workaround is included.
+The local filesystem is temporary. Restart, redeploy or sleeping can discard
+history and delivery state, causing a new initial batch of alerts on next start.
+Free Render services cannot attach a persistent disk. Free Render Postgres
+expires after 30 days. This package therefore does not satisfy continuous
+monitoring plus durable history on Render Free. It is usable there for testing.
+https://render.com/docs/free
+
+PERSISTENT SERVER OPTIONS
+The same server.py can run on an Ubuntu VM with persistent local disk (for
+example, eligible Oracle Always Free compute), or paid Render hosting with
+a persistent disk mounted and DATA_DIR set to a directory on that disk.
+No paid resources are created by this package.
+Always test the Binance public API from the actual hosting region. Access can
+differ from your PC. Repeated market failures appear in the hosting logs and
+the health endpoint's last_successful_scan_utc stops advancing.
+
+HEALTH ENDPOINT
+GET /healthz returns worker_running and last_successful_scan_utc, without
+credentials or offer details. A running worker can still encounter upstream
+API failures, so check that the last successful scan time keeps advancing.
+
+BACKUPS
+Keep periodic backups of market.sqlite3 outside the service. A consistent copy
+can be taken while monitoring is stopped or using SQLite's online backup API.
+
+LOCAL CHECKS
+python -m unittest -v
+No test uses real Telegram credentials or sends real messages.
