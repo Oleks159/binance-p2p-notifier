@@ -10,6 +10,7 @@ import time
 from urllib.parse import urlencode
 
 from notifier import ServiceError, Telegram, api_code, request_json
+from daily_report import send_daily_if_due
 
 PUBLIC = "https://www.binance.com/bapi/c2c/v1/public/c2c/agent/"
 TARGET_METHODS = {"sepainstant": "SEPA Instant", "wise": "Wise"}
@@ -314,6 +315,8 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
                     # Continue observing markets while Telegram is unavailable.
                     report(f"Telegram delivery failed: {error} Relevant alerts will retry after the next scan.")
                     stop.wait(error.retry_after)
+                # A durable once-per-Berlin-day summary of the last 24h.
+                send_daily_if_due(store, int(time.time() * 1000), send, report)
                 errors = 0
                 stop.wait(config["poll_seconds"])
             except ServiceError as error:
