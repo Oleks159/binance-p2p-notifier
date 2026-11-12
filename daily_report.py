@@ -26,9 +26,9 @@ def report_due(store, now):
     return None if record else key
 
 
-def build_daily_report(store, now):
+def build_daily_report(store, now, today=False):
     """Rank best observed price for each unique ad over the previous 24h."""
-    start = now - DAY_MS
+    start = (int(datetime.fromtimestamp(now / 1000, TZ).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000) if today else now - DAY_MS)
     candidates = {"BUY": {}, "SELL": {}}
 
     # A change is stored only when offer data changes, so also include the most
@@ -69,7 +69,7 @@ def build_daily_report(store, now):
     local = datetime.fromtimestamp(now / 1000, TZ)
     start_local = datetime.fromtimestamp(start / 1000, TZ)
     lines = [
-        "Binance P2P — daily top 5 (observed offers)",
+        "Binance P2P — today top 5 (observed offers)" if today else "Binance P2P — last 24h top 5 (observed offers)",
         f"{start_local:%d.%m %H:%M} – {local:%d.%m.%Y %H:%M} (Berlin)",
         f"Trade size: EUR {store.rules.minimum:g}–{store.rules.maximum:g}; SEPA Instant / Wise",
         "BUY = buy USDT cheaply; SELL = sell USDT expensively.",
@@ -96,7 +96,7 @@ def build_daily_report(store, now):
     if best["BUY"] and best["SELL"]:
         difference = best["SELL"][0]["price"] - best["BUY"][0]["price"]
         lines.append(f"Theoretical best-price difference: EUR {difference:f}/USDT (historical, not executable spread).")
-    lines.append("Historical observations only; offers may no longer be available. Check live Binance limits and fees.")
+    lines.append("Observed snapshots only, not all Binance listings. Missing scans or lost storage can omit better offers. Historical offers may no longer be available.")
     return "\n".join(lines)
 
 
