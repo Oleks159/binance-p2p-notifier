@@ -64,8 +64,8 @@ class Commands:
             if command in ("/start", "/help"):
                 response = ("Commands:\n/now — current top 5 BUY and SELL\n"
                             "/today — today's best observed top 5 BUY and SELL\n"
-                            "/range YYYY-MM-DD HH:MM HH:MM — best offers in a period\n"
-                            "/range YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM — across dates\n"
+                            "/range DD.MM HH:MM HH:MM — same-day range\n"
+                            "/range DD.MM HH:MM DD.MM HH:MM — across dates\n"
                             "/status — database and scan status\n/help — commands")
             elif command == "/now":
                 response = current_text(snapshot, rules)
