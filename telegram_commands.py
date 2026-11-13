@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from daily_report import build_daily_report
+from historical_range import parse_range, range_report
 from market import rank
 from notifier import ServiceError
 
@@ -63,11 +64,19 @@ class Commands:
             if command in ("/start", "/help"):
                 response = ("Commands:\n/now — current top 5 BUY and SELL\n"
                             "/today — today's best observed top 5 BUY and SELL\n"
+                            "/range YYYY-MM-DD HH:MM HH:MM — best offers in a period\n"
+                            "/range YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM — across dates\n"
                             "/status — database and scan status\n/help — commands")
             elif command == "/now":
                 response = current_text(snapshot, rules)
             elif command == "/today":
                 response = build_daily_report(store, int(time.time() * 1000), today=True)
+            elif command == "/range":
+                try:
+                    start_ms, end_ms = parse_range(str(message.get("text") or "").partition(" ")[2], int(time.time() * 1000))
+                    response = range_report(store, start_ms, end_ms)
+                except ValueError as error:
+                    response = str(error)
             elif command == "/status":
                 first = store.db.execute("SELECT MIN(seen_at),MAX(seen_at),COUNT(*) FROM changes").fetchone()
                 response = (f"Watcher active. Stored price changes: {first[2]}.\n"
@@ -76,5 +85,14 @@ class Commands:
                 response += "\nData may be incomplete after restarts without persistent storage."
             else:
                 continue
-            self.telegram.send(response)
+            # Telegram sendMessage supports at most 4096 characters per message.
+            # Split on line boundaries so long reports are delivered completely.
+            chunk = ""
+            for line in response.splitlines(keepends=True):
+                if len(chunk) + len(line) > 3900 and chunk:
+                    self.telegram.send(chunk)
+                    chunk = ""
+                chunk += line
+            if chunk:
+                self.telegram.send(chunk)
             report("Answered Telegram command " + command)
