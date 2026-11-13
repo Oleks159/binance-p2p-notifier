@@ -14,18 +14,25 @@ MAX_DAYS = 31
 def parse_range(arguments, now=None):
     """Accept /range YYYY-MM-DD HH:MM HH:MM or two dated timestamps."""
     tokens = arguments.strip().split()
+    current_year = datetime.fromtimestamp(now / 1000, TZ).year if now is not None else datetime.now(TZ).year
+
+    def expand(day):
+        if len(day) == 5 and day[2] == ".":
+            return f"{current_year}-{day[3:5]}-{day[:2]}"
+        return day
+
     if len(tokens) == 3:
         day, first, last = tokens
-        start_s, end_s = f"{day} {first}", f"{day} {last}"
+        start_s, end_s = f"{expand(day)} {first}", f"{expand(day)} {last}"
     elif len(tokens) == 4:
-        start_s, end_s = " ".join(tokens[:2]), " ".join(tokens[2:])
+        start_s, end_s = f"{expand(tokens[0])} {tokens[1]}", f"{expand(tokens[2])} {tokens[3]}"
     else:
-        raise ValueError("Usage: /range 2026-11-12 14:00 18:00\nOr: /range 2026-11-12 22:00 2026-11-13 02:00")
+        raise ValueError("Usage: /range 13.11 00:00 10:00\\nOr: /range 12.11 00:00 13.11 12:00")
     try:
         start = datetime.strptime(start_s, "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
         end = datetime.strptime(end_s, "%Y-%m-%d %H:%M").replace(tzinfo=TZ)
     except ValueError:
-        raise ValueError("Invalid date/time. Use YYYY-MM-DD HH:MM in Berlin time.") from None
+        raise ValueError("Invalid date/time. Use DD.MM HH:MM (current year, Berlin time).") from None
     start_ms, end_ms = int(start.timestamp() * 1000), int(end.timestamp() * 1000)
     if start_ms >= end_ms:
         raise ValueError("End time must be after start time.")
