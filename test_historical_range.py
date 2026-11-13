@@ -27,8 +27,10 @@ class RangeTests(unittest.TestCase):
                         (side, ad_id, self.start + minute*60000, json.dumps(item)))
 
     def test_parsing_and_invalid_windows(self):
-        a,b = parse_range("2026-11-12 23:00 2026-11-13 01:00")
+        a,b = parse_range("12.11 23:00 13.11 01:00", now=int(datetime(2026,11,13,10,0,tzinfo=ZoneInfo("Europe/Berlin")).timestamp()*1000))
         self.assertEqual(b-a, 2*3600*1000)
+        c,d = parse_range("13.11 00:00 10:00", now=int(datetime(2026,11,13,11,0,tzinfo=ZoneInfo("Europe/Berlin")).timestamp()*1000))
+        self.assertEqual(d-c, 10*3600*1000)
         with self.assertRaises(ValueError):
             parse_range("2026-11-12 18:00 14:00")
         with self.assertRaises(ValueError):
