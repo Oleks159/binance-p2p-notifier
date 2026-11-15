@@ -57,20 +57,53 @@ class Commands:
         self.telegram = telegram
         self.chat_id = str(chat_id)
         self.offset = None
+        self.initialized = False
 
     def poll(self, store, snapshot, rules, report, price_alerts=None, market=None):
+        # Durable checkpoint shared by restarts and all workers using this volume.
+        store.db.execute("""CREATE TABLE IF NOT EXISTS telegram_command_state
+            (chat_id TEXT PRIMARY KEY, last_update INTEGER NOT NULL)""")
+        store.db.execute("""CREATE TABLE IF NOT EXISTS telegram_processed_updates
+            (chat_id TEXT NOT NULL, update_id INTEGER NOT NULL,
+             PRIMARY KEY(chat_id, update_id))""")
+        store.db.commit()
+        checkpoint = store.db.execute(
+            "SELECT last_update FROM telegram_command_state WHERE chat_id=?",
+            (self.chat_id,)).fetchone()
+        offset = checkpoint[0] + 1 if checkpoint else None
         result = self.telegram.call("getUpdates", {
             "timeout": 0, "limit": 100,
             "allowed_updates": ["message"],
-            **({"offset": self.offset} if self.offset is not None else {}),
+            **({"offset": offset} if offset is not None else {}),
         })
         if not isinstance(result, list):
             raise ServiceError("Unexpected Telegram updates response.")
+        if checkpoint is None:
+            # Existing bot has no persisted checkpoint. Skip previously queued
+            # commands on first run rather than replaying /help and /exportdb.
+            last = max((u["update_id"] for u in result
+                        if isinstance(u.get("update_id"), int)), default=-1)
+            with store.db:
+                store.db.execute(
+                    "INSERT OR IGNORE INTO telegram_command_state(chat_id,last_update) VALUES (?,?)",
+                    (self.chat_id, last))
+            report("Initialized durable Telegram checkpoint; skipped pre-deployment backlog.")
+            return
         for update in result:
             update_id = update.get("update_id")
             if not isinstance(update_id, int):
                 continue
-            self.offset = max(self.offset or 0, update_id + 1)
+            # Claim each update BEFORE executing side effects. A repeated poll
+            # or a restarted worker must never send a second response.
+            with store.db:
+                claimed = store.db.execute(
+                    "INSERT OR IGNORE INTO telegram_processed_updates(chat_id,update_id) VALUES (?,?)",
+                    (self.chat_id, update_id)).rowcount
+                store.db.execute(
+                    "UPDATE telegram_command_state SET last_update=MAX(last_update,?) WHERE chat_id=?",
+                    (update_id, self.chat_id))
+            if not claimed:
+                continue
             message = update.get("message") or {}
             chat = message.get("chat") or {}
             if str(chat.get("id")) != self.chat_id or chat.get("type") != "private":
