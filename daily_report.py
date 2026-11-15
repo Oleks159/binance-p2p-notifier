@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import json
 from zoneinfo import ZoneInfo
+from offer_visibility import extra_lines
 
 TZ = ZoneInfo("Europe/Berlin")
 DAY_MS = 86_400_000
@@ -64,6 +65,7 @@ def build_daily_report(store, now, today=False):
                 "id": ad_id, "price": price, "time": seen_at,
                 "merchant": str(item.get("merchant", "Unknown")),
                 "methods": methods, "low": low, "high": high,
+                "available": available,
             }
 
     local = datetime.fromtimestamp(now / 1000, TZ)
@@ -90,13 +92,14 @@ def build_daily_report(store, now, today=False):
             lines.extend([
                 f"{position}. EUR {item['price']:f}/USDT — {item['merchant'][:60]}",
                 f"   EUR {item['low']:.2f}–{item['high']:.2f} | {', '.join(item['methods'])} | observed {at:%H:%M}",
+                *extra_lines(store.db, side, item["id"], item["time"], item["available"], item["price"]),
                 f"   https://c2c.binance.com/en/adv?code={item['id']}",
             ])
         lines.append("")
     if best["BUY"] and best["SELL"]:
         difference = best["SELL"][0]["price"] - best["BUY"][0]["price"]
         lines.append(f"Theoretical best-price difference: EUR {difference:f}/USDT (historical, not executable spread).")
-    lines.append("Observed snapshots only, not all Binance listings. Missing scans or lost storage can omit better offers. Historical offers may no longer be available.")
+    lines.append("Observed snapshots only, not all Binance listings. Missing scans or lost storage can omit better offers. Historical offers may no longer be available. API disappearance is not proof of closure.")
     return "\n".join(lines)
 
 
