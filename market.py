@@ -336,7 +336,7 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
                     report(f"Price alert delivery failed: {error}")
                 # Other reports remain on-demand.
                 try:
-                    commands.poll(store, snapshot, rules, report, price_alerts)
+                    commands.poll(store, snapshot, rules, report, price_alerts, market)
                 except ServiceError as error:
                     report(f"Telegram command polling failed: {error}")
                 errors = 0
