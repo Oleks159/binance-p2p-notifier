@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from daily_report import build_daily_report
+from custom_reports import parse_options, report as custom_report
 from historical_range import parse_range, range_report
 from price_alerts import parse_price
 from search_diagnostics import diagnose
@@ -65,9 +66,9 @@ class Commands:
             command = str(message.get("text") or "").split(maxsplit=1)[0].split("@")[0].lower()
             if command in ("/start", "/help"):
                 response = ("Commands:\n/now — current top 5 BUY and SELL\n"
-                            "/today — today's best observed top 5 BUY and SELL\n"
-                            "/range DD.MM HH:MM HH:MM — same-day range\n"
-                            "/range DD.MM HH:MM DD.MM HH:MM — across dates\n"
+                            "/today [sepa|wise|all] [1..15] — today report\n"
+                            "/range DD.MM HH:MM HH:MM [method] [count]\n"
+                            "/range DD.MM HH:MM DD.MM HH:MM [method] [count]\n"
                             "/status — database and scan status\n"
                             "/buy 0.905 — BUY price ceiling\n"
                             "/sell 0.930 — SELL price floor\n"
@@ -77,11 +78,24 @@ class Commands:
             elif command == "/now":
                 response = current_text(snapshot, rules)
             elif command == "/today":
-                response = build_daily_report(store, int(time.time() * 1000), today=True)
+                try:
+                    now = int(time.time() * 1000)
+                    local = datetime.fromtimestamp(now/1000, TZ)
+                    start = int(local.replace(hour=0, minute=0, second=0, microsecond=0).timestamp()*1000)
+                    method, count = parse_options(str(message.get("text") or "").partition(" ")[2])
+                    response = custom_report(store, start, now, method, count, "TODAY")
+                except ValueError as error:
+                    response = str(error)
             elif command == "/range":
                 try:
-                    start_ms, end_ms = parse_range(str(message.get("text") or "").partition(" ")[2], int(time.time() * 1000))
-                    response = range_report(store, start_ms, end_ms)
+                    tokens = str(message.get("text") or "").partition(" ")[2].split()
+                    if len(tokens) >= 4 and (tokens[2].count(".") == 1 or tokens[2].count("-") == 2):
+                        date_count = 4
+                    else:
+                        date_count = 3
+                    start_ms, end_ms = parse_range(" ".join(tokens[:date_count]), int(time.time() * 1000))
+                    method, count = parse_options(" ".join(tokens[date_count:]))
+                    response = custom_report(store, start_ms, end_ms, method, count)
                 except ValueError as error:
                     response = str(error)
             elif command in ("/buy", "/sell") and price_alerts is not None:
