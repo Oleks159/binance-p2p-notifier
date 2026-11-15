@@ -108,6 +108,7 @@ class PublicMarket:
     def __init__(self, transport=request_json):
         self.transport = transport
         self.methods = None
+        self.last_scan_stats = {}
 
     def get(self, endpoint, params):
         result = self.transport(PUBLIC + endpoint + "?" + urlencode(params),
@@ -137,19 +138,38 @@ class PublicMarket:
         if self.methods is None:
             self.discover_methods()
         all_offers = {"BUY": {}, "SELL": {}}
+        stats = {}
+        # Cap pagination to avoid unlimited API traffic. Binance may return
+        # fewer pages or ignore pagination; repeated pages terminate scanning.
+        page_size, max_pages = 20, 5
         for side in ("BUY", "SELL"):
             for identifier in self.methods:
-                if stopped():
-                    return None
-                data = self.get("ad-list", {"fiat": "EUR", "asset": "USDT", "tradeType": side,
-                                            "limit": 20, "tradeMethodIdentifiers": identifier})
-                if not isinstance(data, dict) or not isinstance(data.get("items"), list):
-                    raise ServiceError("Unexpected Binance public ad list. No partial scan was saved.")
-                for item in data["items"]:
-                    offer = parse_offer(item, side, self.methods)
-                    # Validate the API's payment filter locally too.
-                    if self.methods[identifier] in offer.methods:
-                        all_offers[side][offer.id] = offer
+                label = f"{side}/{self.methods[identifier]}"
+                seen_ids = set()
+                pages = 0
+                for page in range(1, max_pages + 1):
+                    if stopped():
+                        return None
+                    data = self.get("ad-list", {"fiat": "EUR", "asset": "USDT",
+                        "tradeType": side, "limit": page_size, "page": page,
+                        "tradeMethodIdentifiers": identifier})
+                    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+                        raise ServiceError("Unexpected Binance public ad list. No partial scan was saved.")
+                    items = data["items"]
+                    pages += 1
+                    fresh = 0
+                    for item in items:
+                        offer = parse_offer(item, side, self.methods)
+                        if offer.id in seen_ids:
+                            continue
+                        seen_ids.add(offer.id)
+                        fresh += 1
+                        if self.methods[identifier] in offer.methods:
+                            all_offers[side][offer.id] = offer
+                    if len(items) < page_size or fresh == 0:
+                        break
+                stats[label] = f"{len(seen_ids)} ads/{pages} pages"
+        self.last_scan_stats = stats
         return {side: list(offers.values()) for side, offers in all_offers.items()}
 
 
@@ -307,7 +327,7 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
                 ranked = store.observe(snapshot)
                 update(ranked)
                 report(f"Checked BUY and SELL. Best five: {len(ranked['BUY'])} BUY, {len(ranked['SELL'])} SELL. "
-                       f"Saved offers: {store.history_count()}. " + time.strftime("%H:%M:%S"))
+                       f"Saved offers: {store.history_count()}. Scan coverage: {market.last_scan_stats}. " + time.strftime("%H:%M:%S"))
 
                 # Only explicitly configured threshold alerts are automatic.
                 try:
