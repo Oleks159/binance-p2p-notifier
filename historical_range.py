@@ -5,6 +5,7 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 import json
 from zoneinfo import ZoneInfo
+from offer_visibility import extra_lines
 
 TZ = ZoneInfo("Europe/Berlin")
 CENT = Decimal("0.01")
@@ -76,7 +77,8 @@ def historical_best(store, start_ms, end_ms, count=5, payment=None):
         if old is None or (price < old["price"] if side == "BUY" else price > old["price"]):
             best[side][ad_id] = dict(id=ad_id, price=price, time=observed,
                                       merchant=str(item.get("merchant", "Unknown")),
-                                      low=low, high=high, methods=methods)
+                                      low=low, high=high, methods=methods,
+                                      available=Decimal(str(item["available"])))
     return {
         side: sorted(best[side].values(),
                      key=lambda x: (x["price"] if side == "BUY" else -x["price"], x["id"]))[:count]
@@ -104,10 +106,11 @@ def range_report(store, start_ms, end_ms, count=5, payment=None):
                 f"{i}. EUR {offer['price']:f}/USDT — {offer['merchant'][:60]}",
                 f"   EUR {offer['low']:.2f}–{offer['high']:.2f} | {', '.join(offer['methods'])}",
                 f"   Observed {at:%d.%m %H:%M:%S}",
+                *extra_lines(store.db, side, offer["id"], offer["time"], offer["available"], offer["price"]),
                 f"   https://c2c.binance.com/en/adv?code={offer['id']}",
             ])
         lines.append("")
     lines.append("Historical observations only, not executable quotes. Older database records "
                  "track changes rather than every scan; unchanged offers and downtime can "
-                 "leave gaps. Data lost before persistent storage cannot be reconstructed.")
+                 "leave gaps. Disappearance from API results does not prove an ad was closed. Data lost before persistent storage cannot be reconstructed.")
     return "\n".join(lines)

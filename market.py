@@ -11,6 +11,7 @@ from urllib.parse import urlencode
 
 from notifier import ServiceError, Telegram, api_code, request_json
 from daily_report import send_daily_if_due
+from offer_visibility import setup as setup_visibility, observe as observe_visibility
 
 PUBLIC = "https://www.binance.com/bapi/c2c/v1/public/c2c/agent/"
 TARGET_METHODS = {"sepainstant": "SEPA Instant", "wise": "Wise"}
@@ -223,10 +224,13 @@ class MarketStore:
                 superseded INTEGER DEFAULT 0);
         """)
 
+        setup_visibility(self.db)
+
     def observe(self, snapshot, now=None, notify=False):
         now = int(time.time() * 1000) if now is None else now
         ranked = {}
         with self.db:
+            observe_visibility(self.db, snapshot, now)
             for side in ("BUY", "SELL"):
                 record = self.db.execute("SELECT snapshot FROM rankings WHERE profile=? AND side=?",
                                          (self.profile, side)).fetchone()
