@@ -11,6 +11,7 @@ from price_alerts import parse_price
 from search_diagnostics import diagnose
 from market import rank
 from notifier import ServiceError
+from database_export import export_database
 
 TZ = ZoneInfo("Europe/Berlin")
 
@@ -88,7 +89,8 @@ class Commands:
                             "/sell 0.930 — SELL price floor\n"
                             "/alerts — view thresholds\n"
                             "/alerts off — disable alerts\n"
-                            "/diagnose [ad ID] — test Binance search parameters\n/help — commands")
+                            "/diagnose [ad ID] — test Binance search parameters\n"
+                            "/exportdb — send a private database backup\n/help — commands")
             elif command == "/now":
                 try:
                     count, payment = report_options(str(message.get("text") or "").partition(" ")[2])
@@ -137,6 +139,14 @@ class Commands:
                     response = "Usage: /diagnose or /diagnose 12345678901234567890"
                 else:
                     response = diagnose(market, rules, target or None)
+            elif command == "/exportdb":
+                try:
+                    export_database(store, self.telegram)
+                    report("Sent SQLite database backup to authorized private chat.")
+                except ServiceError as error:
+                    self.telegram.send(str(error))
+                    report("Database export failed.")
+                continue
             elif command == "/status":
                 first = store.db.execute("SELECT MIN(seen_at),MAX(seen_at),COUNT(*) FROM changes").fetchone()
                 response = (f"Watcher active. Stored price changes: {first[2]}.\n"
