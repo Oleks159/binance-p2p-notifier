@@ -43,7 +43,7 @@ def parse_range(arguments, now=None):
     return start_ms, min(end_ms, now) if now is not None else end_ms
 
 
-def historical_best(store, start_ms, end_ms):
+def historical_best(store, start_ms, end_ms, count=5, method=None):
     """Use historical changed snapshots plus offers whose last scan is in range.
 
     Changes only persist when a listing changes. Legacy data therefore cannot
@@ -68,7 +68,7 @@ def historical_best(store, start_ms, end_ms):
             low = low.quantize(CENT, rounding=ROUND_CEILING)
             high = high.quantize(CENT, rounding=ROUND_FLOOR)
             methods = [x for x in item["methods"] if x in ("Wise", "SEPA Instant")]
-            if not price.is_finite() or price <= 0 or not methods or low > high or high <= 0:
+            if not price.is_finite() or price <= 0 or not methods or (method and method not in methods) or low > high or high <= 0:
                 continue
         except (KeyError, TypeError, ValueError, InvalidOperation, ArithmeticError):
             continue
@@ -79,7 +79,7 @@ def historical_best(store, start_ms, end_ms):
                                       low=low, high=high, methods=methods)
     return {
         side: sorted(best[side].values(),
-                     key=lambda x: (x["price"] if side == "BUY" else -x["price"], x["id"]))[:5]
+                     key=lambda x: (x["price"] if side == "BUY" else -x["price"], x["id"]))[:count]
         for side in ("BUY", "SELL")
     }
 
