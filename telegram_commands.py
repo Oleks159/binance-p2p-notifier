@@ -15,13 +15,28 @@ from notifier import ServiceError
 TZ = ZoneInfo("Europe/Berlin")
 
 
-def current_text(snapshot, rules):
-    lines = ["Binance P2P — CURRENT observed top 5",
+def report_options(raw):
+    count, payment = 5, None
+    count_set = False
+    for token in raw.lower().split():
+        if token.isdigit() and 1 <= int(token) <= 15 and not count_set:
+            count, count_set = int(token), True
+        elif token in ("sepa", "sepainstant", "sepa-instant") and payment is None:
+            payment = "SEPA Instant"
+        elif token == "wise" and payment is None:
+            payment = "Wise"
+        else:
+            raise ValueError("Use 1–15 and optional sepa or wise, e.g. /today 10 sepa")
+    return count, payment
+
+
+def current_text(snapshot, rules, count=5, payment=None):
+    lines = [f"Binance P2P — CURRENT observed top {count}",
              f"Checked {datetime.now(TZ):%d.%m.%Y %H:%M:%S} Berlin",
-             "USDT/EUR | SEPA Instant / Wise | observed API listings only", ""]
+             f"USDT/EUR | {payment or 'SEPA Instant / Wise'} | observed API listings only", ""]
     for side in ("BUY", "SELL"):
         lines.append("TOP " + side + ":")
-        offers = rank(snapshot[side], rules)
+        offers = sorted((o for o in snapshot[side] if (payment is None or payment in o.methods) and o.usable(rules)), key=lambda o: (o.price if side == "BUY" else -o.price, o.id))[:count]
         if not offers:
             lines.append("No qualifying offers in the current scan.")
         for index, offer in enumerate(offers, 1):
@@ -64,9 +79,9 @@ class Commands:
                 continue
             command = str(message.get("text") or "").split(maxsplit=1)[0].split("@")[0].lower()
             if command in ("/start", "/help"):
-                response = ("Commands:\n/now — current top 5 BUY and SELL\n"
-                            "/today — today's best observed top 5 BUY and SELL\n"
-                            "/range DD.MM HH:MM HH:MM — same-day range\n"
+                response = ("Commands:\n/now [1-15] [sepa|wise] — current offers\n"
+                            "/today [1-15] [sepa|wise] — today's best\n"
+                            "/range DD.MM HH:MM HH:MM [1-15] [sepa|wise]\n"
                             "/range DD.MM HH:MM DD.MM HH:MM — across dates\n"
                             "/status — database and scan status\n"
                             "/buy 0.905 — BUY price ceiling\n"
@@ -75,13 +90,29 @@ class Commands:
                             "/alerts off — disable alerts\n"
                             "/diagnose [ad ID] — test Binance search parameters\n/help — commands")
             elif command == "/now":
-                response = current_text(snapshot, rules)
+                try:
+                    count, payment = report_options(str(message.get("text") or "").partition(" ")[2])
+                    response = current_text(snapshot, rules, count, payment)
+                except ValueError as error:
+                    response = str(error)
             elif command == "/today":
-                response = build_daily_report(store, int(time.time() * 1000), today=True)
+                try:
+                    count, payment = report_options(str(message.get("text") or "").partition(" ")[2])
+                    now = int(time.time() * 1000)
+                    start = int(datetime.fromtimestamp(now / 1000, TZ).replace(
+                        hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+                    response = range_report(store, start, now, count, payment)
+                except ValueError as error:
+                    response = str(error)
             elif command == "/range":
                 try:
-                    start_ms, end_ms = parse_range(str(message.get("text") or "").partition(" ")[2], int(time.time() * 1000))
-                    response = range_report(store, start_ms, end_ms)
+                    tokens = str(message.get("text") or "").partition(" ")[2].split()
+                    if len(tokens) < 3:
+                        raise ValueError("Use /range 13.11 00:00 10:00 [10] [sepa|wise]")
+                    date_parts = 3 if ":" in tokens[2] else 4
+                    start_ms, end_ms = parse_range(" ".join(tokens[:date_parts]), int(time.time() * 1000))
+                    count, payment = report_options(" ".join(tokens[date_parts:]))
+                    response = range_report(store, start_ms, end_ms, count, payment)
                 except ValueError as error:
                     response = str(error)
             elif command in ("/buy", "/sell") and price_alerts is not None:
