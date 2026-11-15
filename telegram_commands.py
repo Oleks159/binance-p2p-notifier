@@ -59,6 +59,13 @@ class Commands:
         self.offset = None
 
     def poll(self, store, snapshot, rules, report, price_alerts=None, market=None):
+        store.db.execute("""CREATE TABLE IF NOT EXISTS telegram_processed_updates (
+            update_id INTEGER PRIMARY KEY, processed_at INTEGER NOT NULL)""")
+        store.db.commit()
+        # Persist a watermark across process restarts; Telegram's offset
+        # acknowledgement alone is insufficient when the process crashes.
+        latest = store.db.execute("SELECT MAX(update_id) FROM telegram_processed_updates").fetchone()[0]
+        self.offset = max(self.offset or 0, (latest + 1) if latest is not None else 0)
         result = self.telegram.call("getUpdates", {
             "timeout": 0, "limit": 100,
             "allowed_updates": ["message"],
@@ -71,6 +78,15 @@ class Commands:
             if not isinstance(update_id, int):
                 continue
             self.offset = max(self.offset or 0, update_id + 1)
+            # At-most-once command processing: record before side effects.
+            # If the process dies while sending, a reply may be missed, but
+            # the same command will not be replayed after restart.
+            with store.db:
+                inserted = store.db.execute(
+                    "INSERT OR IGNORE INTO telegram_processed_updates(update_id,processed_at) VALUES (?,?)",
+                    (update_id, int(time.time() * 1000))).rowcount
+            if not inserted:
+                continue
             message = update.get("message") or {}
             chat = message.get("chat") or {}
             if str(chat.get("id")) != self.chat_id or chat.get("type") != "private":
