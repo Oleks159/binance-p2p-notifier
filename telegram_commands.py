@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from daily_report import build_daily_report
 from historical_range import parse_range, range_report
 from price_alerts import parse_price
+from search_diagnostics import diagnose
 from market import rank
 from notifier import ServiceError
 
@@ -41,7 +42,7 @@ class Commands:
         self.chat_id = str(chat_id)
         self.offset = None
 
-    def poll(self, store, snapshot, rules, report, price_alerts=None):
+    def poll(self, store, snapshot, rules, report, price_alerts=None, market=None):
         result = self.telegram.call("getUpdates", {
             "timeout": 0, "limit": 100,
             "allowed_updates": ["message"],
@@ -71,7 +72,8 @@ class Commands:
                             "/buy 0.905 — BUY price ceiling\n"
                             "/sell 0.930 — SELL price floor\n"
                             "/alerts — view thresholds\n"
-                            "/alerts off — disable alerts\n/help — commands")
+                            "/alerts off — disable alerts\n"
+                            "/diagnose [ad ID] — test Binance search parameters\n/help — commands")
             elif command == "/now":
                 response = current_text(snapshot, rules)
             elif command == "/today":
@@ -98,6 +100,12 @@ class Commands:
                     response = price_alerts.describe()
                 else:
                     response = "Use /alerts or /alerts off"
+            elif command == "/diagnose" and market is not None:
+                target = str(message.get("text") or "").partition(" ")[2].strip()
+                if target and (not target.isdigit() or len(target) > 32):
+                    response = "Usage: /diagnose or /diagnose 12345678901234567890"
+                else:
+                    response = diagnose(market, rules, target or None)
             elif command == "/status":
                 first = store.db.execute("SELECT MIN(seen_at),MAX(seen_at),COUNT(*) FROM changes").fetchone()
                 response = (f"Watcher active. Stored price changes: {first[2]}.\n"
