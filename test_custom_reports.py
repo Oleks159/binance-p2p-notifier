@@ -22,11 +22,11 @@ class CustomReportsTests(unittest.TestCase):
         start=int(datetime(2026,11,15,tzinfo=ZoneInfo("Europe/Berlin")).timestamp()*1000)
         for i in range(16):
             item=dict(price=str(Decimal("0.80")+Decimal(i)/1000),minimum_crypto="500",maximum_crypto="10000",available="10000",methods=["Wise" if i<10 else "SEPA Instant"],merchant=f"Merchant{i}")
-            db.execute("INSERT INTO changes VALUES (?,?,?,?,?)" if False else "INSERT INTO changes VALUES (?,?,?,?)",("BUY",str(i),start+1000,json.dumps(item)))
+            db.execute("INSERT INTO changes VALUES (?,?,?,?)",("BUY",str(i),start+1000,json.dumps(item)))
         store=SimpleNamespace(db=db,rules=SimpleNamespace(minimum=Decimal("500"),maximum=Decimal("10000")))
         text=report(store,start,start+5000,15,"SEPA Instant")
         self.assertIn("Merchant10",text)
-        self.assertNotIn("Merchant0\\n",text)
+        self.assertNotIn("Merchant0",text)
         self.assertIn("TOP 15 BUY",text)
 
 if __name__=="__main__":
