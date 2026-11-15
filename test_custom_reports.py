@@ -20,7 +20,7 @@ class CustomReportTests(unittest.TestCase):
         def add(side,id,price,methods):
             payload=dict(price=str(price),minimum_crypto="500",maximum_crypto="10000",
                          available="10000",merchant=id,methods=methods)
-            db.execute("INSERT INTO changes VALUES(?,?,?,?,?)".replace("?,?,?,?,?","?,?,?,?"),
+            db.execute("INSERT INTO changes VALUES(?,?,?,?)",
                        (side,id,1500,json.dumps(payload)))
         add("BUY","wisecheap","0.88",["Wise"])
         add("BUY","sepacheap","0.90",["SEPA Instant"])
