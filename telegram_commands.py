@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from daily_report import build_daily_report
 from historical_range import parse_range, range_report
+from price_alerts import parse_price
 from market import rank
 from notifier import ServiceError
 
@@ -40,7 +41,7 @@ class Commands:
         self.chat_id = str(chat_id)
         self.offset = None
 
-    def poll(self, store, snapshot, rules, report):
+    def poll(self, store, snapshot, rules, report, price_alerts=None):
         result = self.telegram.call("getUpdates", {
             "timeout": 0, "limit": 100,
             "allowed_updates": ["message"],
@@ -66,7 +67,11 @@ class Commands:
                             "/today — today's best observed top 5 BUY and SELL\n"
                             "/range DD.MM HH:MM HH:MM — same-day range\n"
                             "/range DD.MM HH:MM DD.MM HH:MM — across dates\n"
-                            "/status — database and scan status\n/help — commands")
+                            "/status — database and scan status\n"
+                            "/buy 0.905 — BUY price ceiling\n"
+                            "/sell 0.930 — SELL price floor\n"
+                            "/alerts — view thresholds\n"
+                            "/alerts off — disable alerts\n/help — commands")
             elif command == "/now":
                 response = current_text(snapshot, rules)
             elif command == "/today":
@@ -77,6 +82,22 @@ class Commands:
                     response = range_report(store, start_ms, end_ms)
                 except ValueError as error:
                     response = str(error)
+            elif command in ("/buy", "/sell") and price_alerts is not None:
+                try:
+                    value = parse_price(str(message.get("text") or "").partition(" ")[2].strip())
+                    price_alerts.configure(command[1:].upper(), value)
+                    response = price_alerts.describe()
+                except ValueError as error:
+                    response = str(error)
+            elif command == "/alerts" and price_alerts is not None:
+                argument = str(message.get("text") or "").partition(" ")[2].strip().lower()
+                if argument == "off":
+                    price_alerts.disable()
+                    response = "Price alerts disabled.\n" + price_alerts.describe()
+                elif argument == "":
+                    response = price_alerts.describe()
+                else:
+                    response = "Use /alerts or /alerts off"
             elif command == "/status":
                 first = store.db.execute("SELECT MIN(seen_at),MAX(seen_at),COUNT(*) FROM changes").fetchone()
                 response = (f"Watcher active. Stored price changes: {first[2]}.\n"

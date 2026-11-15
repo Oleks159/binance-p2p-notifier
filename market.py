@@ -291,6 +291,8 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
     store = MarketStore(folder / "market.sqlite3", rules)
     from telegram_commands import Commands
     commands = Commands(telegram, config['chat_id'])
+    from price_alerts import PriceAlerts
+    price_alerts = PriceAlerts(store)
     errors = 0
     last_method_sync = 0
     try:
@@ -307,9 +309,14 @@ def watch(config, folder, stop, report, update=lambda ranked: None):
                 report(f"Checked BUY and SELL. Best five: {len(ranked['BUY'])} BUY, {len(ranked['SELL'])} SELL. "
                        f"Saved offers: {store.history_count()}. " + time.strftime("%H:%M:%S"))
 
-                # No automatic market alerts or daily summaries: respond only to commands.
+                # Only explicitly configured threshold alerts are automatic.
                 try:
-                    commands.poll(store, snapshot, rules, report)
+                    price_alerts.check(snapshot, rules, telegram.send)
+                except ServiceError as error:
+                    report(f"Price alert delivery failed: {error}")
+                # Other reports remain on-demand.
+                try:
+                    commands.poll(store, snapshot, rules, report, price_alerts)
                 except ServiceError as error:
                     report(f"Telegram command polling failed: {error}")
                 errors = 0
